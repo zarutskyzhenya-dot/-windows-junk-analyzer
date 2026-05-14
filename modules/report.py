@@ -80,9 +80,9 @@ def build_report(
     else:
         sorted_classified = sorted(classified, key=lambda item: item[0].size_bytes, reverse=True)
 
-        for file_info, reasons in sorted_classified:
+        for idx, (file_info, reasons) in enumerate(sorted_classified, start=1):
             lines.append("")
-            lines.append(f"[{file_info.path}]")
+            lines.append(f"#{idx} [{file_info.path}]")
             lines.append(f"  Size:   {format_size(file_info.size_bytes)}")
             lines.append(f"  Reason: {', '.join(r.value for r in reasons)}")
 
@@ -186,9 +186,9 @@ def build_report_pretty(
         lines.append(f"  {_GRN}No junk files found.{_RST}")
     else:
         sorted_classified = sorted(classified, key=lambda item: item[0].size_bytes, reverse=True)
-        for file_info, reasons in sorted_classified:
+        for idx, (file_info, reasons) in enumerate(sorted_classified, start=1):
             fname = os.path.basename(file_info.path)
-            lines.append(f"  {_BLD}▶ {fname}{_RST}")
+            lines.append(f"  {_BLD}#{idx}  ▶ {fname}{_RST}")
             lines.append(f"    {_GRY}Path    :{_RST} {file_info.path}")
             lines.append(f"    {_GRY}Size    :{_RST} {_YLW}{format_size(file_info.size_bytes)}{_RST}")
             reasons_str = ", ".join(f"{_RED}{r.value}{_RST}" for r in reasons)
