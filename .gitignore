@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Personal data — do not commit
+*.db
+report*.txt
+
+# OS
+Thumbs.db
+.DS_Store
