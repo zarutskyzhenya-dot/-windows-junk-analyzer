@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Callable, Optional
 from collections import defaultdict
 
-from modules.rules import JunkReason
+from modules.rules import JunkReason, FileType, FILE_TYPE_PRIORITY, FILE_TYPE_LABEL, get_file_type, _FILE_TYPE_INDEX
 
 REASON_PRIORITY = [
     JunkReason.TEMP_EXTENSION,
@@ -35,6 +35,24 @@ REASON_MAP = {
 
 _PRIORITY_INDEX = {r: i for i, r in enumerate(REASON_PRIORITY)}
 
+REASON_SHORT = {
+    JunkReason.OLD_FILE:       "стар",
+    JunkReason.LARGE_FILE:     "бол",
+    JunkReason.TEMP_EXTENSION: "врем",
+    JunkReason.LOG_FILE:       "лог",
+    JunkReason.CACHE_FILE:     "кэш",
+    JunkReason.EMPTY_FILE:     "пуст",
+}
+
+
+def _format_compact_size(size_bytes: int) -> str:
+    if size_bytes < 1024 ** 2:
+        return f"{size_bytes / 1024:.1f}KB"
+    elif size_bytes < 1024 ** 3:
+        return f"{size_bytes / 1024 ** 2:.1f}MB"
+    else:
+        return f"{size_bytes / 1024 ** 3:.1f}GB"
+
 
 def _primary_reason(reasons: list) -> JunkReason:
     return min(reasons, key=lambda r: _PRIORITY_INDEX.get(r, 999))
@@ -42,7 +60,7 @@ def _primary_reason(reasons: list) -> JunkReason:
 
 def sort_classified(classified: list) -> list:
     return sorted(classified, key=lambda item: (
-        _PRIORITY_INDEX.get(_primary_reason(item[1]), 999),
+        _FILE_TYPE_INDEX.get(get_file_type(item[0].path), 999),
         -item[0].size_bytes,
     ))
 
@@ -174,18 +192,18 @@ def build_report_pretty(
         lines.append(f"  {_GRN}No junk files found.{_RST}")
         return "\n".join(lines)
 
-    group_counts: dict = {r: 0 for r in REASON_PRIORITY}
-    group_bytes: dict  = {r: 0 for r in REASON_PRIORITY}
-    for file_info, reasons in classified:
-        primary = _primary_reason(reasons)
-        group_counts[primary] += 1
-        group_bytes[primary]  += file_info.size_bytes
+    ft_counts: dict = {ft: 0 for ft in FILE_TYPE_PRIORITY}
+    ft_bytes:  dict = {ft: 0 for ft in FILE_TYPE_PRIORITY}
+    for file_info, _ in classified:
+        ft = get_file_type(file_info.path)
+        ft_counts[ft] += 1
+        ft_bytes[ft]  += file_info.size_bytes
 
-    active = [r for r in REASON_PRIORITY if group_counts[r] > 0]
+    active_ft = [ft for ft in FILE_TYPE_PRIORITY if ft_counts[ft] > 0]
 
-    lbl_w = max((len(REASON_LABEL[r]) for r in active), default=5)
+    lbl_w = max((len(FILE_TYPE_LABEL[ft]) for ft in active_ft), default=5)
     lbl_w = max(lbl_w, 8)
-    num_w = max((len(str(group_counts[r])) for r in active), default=5)
+    num_w = max((len(str(ft_counts[ft])) for ft in active_ft), default=5)
     num_w = max(num_w, 5)
     sz_w  = 10
 
@@ -202,11 +220,11 @@ def build_report_pretty(
     bottom = f"  └{'─' * (lbl_w + 2)}┴{'─' * (num_w + 2)}┴{'─' * (sz_w + 2)}┘"
 
     lines.append(top)
-    lines.append(_row("Category", "Files", "Size", header=True))
+    lines.append(_row("Тип", "Файлов", "Размер", header=True))
     lines.append(mid)
-    for reason in active:
-        lines.append(_row(REASON_LABEL[reason], str(group_counts[reason]),
-                          _format_total_size(group_bytes[reason])))
+    for ft in active_ft:
+        lines.append(_row(FILE_TYPE_LABEL[ft], str(ft_counts[ft]),
+                          _format_total_size(ft_bytes[ft])))
     lines.append(bottom)
     lines.append("")
 
@@ -215,43 +233,38 @@ def build_report_pretty(
     idx = 0
 
     for file_info, reasons in sorted_classified:
-        primary = _primary_reason(reasons)
+        ft = get_file_type(file_info.path)
 
-        if primary != current_group:
-            current_group = primary
-            label = REASON_LABEL[primary]
-            count = group_counts[primary]
-            size  = _format_total_size(group_bytes[primary])
-
-            if primary == JunkReason.OLD_FILE and not show_old:
-                lines.append(f"  {_GRY}━━━ {label} — {count} файлів — {size} ━━━  [згорнуто]{_RST}")
-                lines.append("")
-                break
-
-            lines.append(f"  {_CYN}━━━ {label} — {count} файлів — {size} ━━━{_RST}")
+        if ft != current_group:
+            current_group = ft
+            label = FILE_TYPE_LABEL[ft]
+            count = ft_counts[ft]
+            size  = _format_total_size(ft_bytes[ft])
+            lines.append(f"  {_CYN}━━━ {label} — {count} файлов — {size} ━━━{_RST}")
             lines.append("")
 
         idx += 1
         fname = os.path.basename(file_info.path)
-        lines.append(f"  {_BLD}#{idx}  ▶ {fname}{_RST}")
-        lines.append(f"    {_GRY}Path    :{_RST} {file_info.path}")
-        lines.append(f"    {_GRY}Size    :{_RST} {_YLW}{format_size(file_info.size_bytes)}{_RST}")
-        reasons_str = ", ".join(f"{_RED}{r.value}{_RST}" for r in reasons)
-        lines.append(f"    {_GRY}Reason  :{_RST} {reasons_str}")
-
-        if get_file_owner_fn is not None and software_map is not None:
-            try:
-                owner = get_file_owner_fn(file_info.path, software_map)
-                if owner:
-                    lines.append(f"    {_GRY}Owner   :{_RST} {owner}")
-            except Exception:
-                pass
-
+        size_str = _format_compact_size(file_info.size_bytes)
+        reasons_str = "/".join(REASON_SHORT.get(r, r.value) for r in reasons)
         try:
             mod_date = datetime.fromtimestamp(file_info.mtime).strftime("%Y-%m-%d")
         except (OSError, OverflowError, ValueError):
             mod_date = "unknown"
-        lines.append(f"    {_GRY}Modified:{_RST} {mod_date}")
+        ft_label = FILE_TYPE_LABEL[ft].lower()
+
+        owner_str = ""
+        if get_file_owner_fn is not None and software_map is not None:
+            try:
+                owner = get_file_owner_fn(file_info.path, software_map)
+                if owner:
+                    owner_str = f"  {_GRY}[{owner}]{_RST}"
+            except Exception:
+                pass
+
+        lines.append(f"  {_BLD}#{idx}  ▶ {fname}{_RST}")
+        lines.append(f"      {_YLW}{size_str}{_RST}  {_RED}[{reasons_str}]{_RST}  {_GRY}{mod_date}  ({ft_label}){_RST}{owner_str}")
+        lines.append(f"      {_GRY}{file_info.path}{_RST}")
         lines.append("")
 
     return "\n".join(lines)

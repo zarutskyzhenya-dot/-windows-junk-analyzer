@@ -12,7 +12,7 @@ from modules.protection import is_protected_path, is_system_file
 from modules.software_map import build_software_map, get_file_owner
 from modules.process_check import get_open_files, is_file_in_use
 from modules.scanner import scan_directories
-from modules.rules import classify_files, DAYS_OLD, JunkReason
+from modules.rules import classify_files, DAYS_OLD
 from modules.report import (build_report, build_report_pretty, save_report,
                             format_size, sort_classified, REASON_MAP, _primary_reason)
 
@@ -41,6 +41,8 @@ def parse_args(argv=None):
                         help="Skip registry scan for software ownership info (faster).")
     parser.add_argument("--follow-junctions", action="store_true", default=False, dest="follow_junctions",
                         help="Follow junction points (by default skipped to avoid cross-drive duplicates).")
+    parser.add_argument("--days", metavar="N", type=int, default=None, dest="days",
+                        help=f"Files older than N days are 'old' (default: {DAYS_OLD}).")
     parser.add_argument("--reason", metavar="CATEGORIES", default=None, dest="reason",
                         help="Show only specified categories: temp,log,cache,large,empty,old (comma-separated).")
     return parser.parse_args(argv)
@@ -80,24 +82,42 @@ def collect_software_map(db_path):
         return {}
 
 
-def ask_threshold() -> float:
-    print("  Мінімальний розмір 'великого файлу' (МБ) [500]: ", end="")
+def _ask_int(prompt: str, default: int) -> int:
+    print(f"  {prompt} [{default}]: ", end="")
     try:
         line = input().strip()
     except (EOFError, KeyboardInterrupt):
         print()
         sys.exit(0)
     if not line:
-        return 500.0
+        return default
+    try:
+        val = int(line)
+        if val <= 0:
+            raise ValueError
+        return val
+    except ValueError:
+        print(f"  \033[33m[!] Неверное значение, использую {default}\033[0m")
+        return default
+
+
+def _ask_float(prompt: str, default: float) -> float:
+    print(f"  {prompt} [{default:.0f}]: ", end="")
+    try:
+        line = input().strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(0)
+    if not line:
+        return default
     try:
         val = float(line)
         if val <= 0:
             raise ValueError
-        print(f"  \033[32m[+] Поріг: {val:.0f} МБ\033[0m")
         return val
     except ValueError:
-        print("  \033[33m[!] Невірне значення, використовую 500 МБ\033[0m")
-        return 500.0
+        print(f"  \033[33m[!] Неверное значение, использую {default:.0f}\033[0m")
+        return default
 
 
 def _interactive_delete(classified: list) -> None:
@@ -105,7 +125,7 @@ def _interactive_delete(classified: list) -> None:
         return
     sorted_files = sort_classified(classified)
     print("  \033[90m─────────────────────────────────────────────\033[0m")
-    print("  Видалити файли? \033[1m[A]\033[0mll  \033[1m[N]\033[0mone  або номери через кому \033[1m(1,3)\033[0m: ", end="")
+    print("  Удалить файлы? \033[1m[A]\033[0mll  \033[1m[N]\033[0mone  или номера через запятую \033[1m(1,3)\033[0m: ", end="")
     try:
         answer = input().strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -113,7 +133,7 @@ def _interactive_delete(classified: list) -> None:
         return
 
     if not answer or answer in ("n", "none"):
-        print("  Нічого не видалено.")
+        print("  Ничего не удалено.")
         return
 
     if answer in ("a", "all"):
@@ -128,22 +148,22 @@ def _interactive_delete(classified: list) -> None:
                     a, b = token.split("-", 1)
                     a, b = int(a), int(b)
                     if a > b:
-                        print(f"  \033[33m[!] Невірний діапазон {a}-{b}: початок більше кінця.\033[0m")
+                        print(f"  \033[33m[!] Неверный диапазон {a}-{b}: начало больше конца.\033[0m")
                         return
                     targets.extend(range(a - 1, b))
                 else:
                     targets.append(int(token) - 1)
             invalid = [i + 1 for i in targets if not (0 <= i < n)]
             if invalid:
-                print(f"  \033[33m[!] Номери поза списком: {', '.join(map(str, invalid))}. Макс: {n}.\033[0m")
+                print(f"  \033[33m[!] Номера вне списка: {', '.join(map(str, invalid))}. Макс: {n}.\033[0m")
                 return
             targets = list(dict.fromkeys(targets))
         except ValueError:
-            print("  \033[31m[!] Невірний формат. Приклад: 1,3 або 2-5 або 1,3-7\033[0m")
+            print("  \033[31m[!] Неверный формат. Пример: 1,3 или 2-5 или 1,3-7\033[0m")
             return
 
     if not targets:
-        print("  Нічого не видалено.")
+        print("  Ничего не удалено.")
         return
 
     print()
@@ -151,7 +171,7 @@ def _interactive_delete(classified: list) -> None:
         fi = sorted_files[i][0]
         print(f"    \033[33m{i+1}. {fi.path}  ({format_size(fi.size_bytes)})\033[0m")
     print()
-    print(f"  \033[31mФайли будуть видалені ({len(targets)} шт.). Ви впевнені? [д/н]:\033[0m ", end="")
+    print(f"  \033[31mФайлы будут удалены ({len(targets)} шт.). Вы уверены? [д/н]:\033[0m ", end="")
     try:
         confirm = input().strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -159,7 +179,7 @@ def _interactive_delete(classified: list) -> None:
         return
 
     if confirm not in ("д", "y"):
-        print("  Скасовано.")
+        print("  Отменено.")
         return
 
     deleted = 0
@@ -168,10 +188,10 @@ def _interactive_delete(classified: list) -> None:
         fname = os.path.basename(path)
         try:
             if not os.path.exists(path):
-                print(f"  \033[33m[SKIP]\033[0m {fname}: файл вже не існує")
+                print(f"  \033[33m[SKIP]\033[0m {fname}: файл уже не существует")
                 continue
             if is_protected_path(path) or is_system_file(path):
-                print(f"  \033[31m[BLOCK]\033[0m {fname}: захищений файл")
+                print(f"  \033[31m[BLOCK]\033[0m {fname}: защищённый файл")
                 continue
             send2trash(path)
             print(f"  \033[32m[OK]\033[0m {fname}")
@@ -179,18 +199,26 @@ def _interactive_delete(classified: list) -> None:
         except Exception as exc:
             print(f"  \033[31m[ERR]\033[0m {fname}: {exc}")
 
-    print(f"\n  Видалено: {deleted} файлів")
+    print(f"\n  Удалено: {deleted} файлов")
 
 
-def ask_scan_paths() -> list[str]:
-    print("\033[36m╔══════════════════════════════════════╗\033[0m")
-    print("\033[36m║\033[0m\033[1m   Windows Junk Analyzer — Setup    \033[0m\033[36m  ║\033[0m")
-    print(f"\033[36m║\033[0m  \033[90mСтарі файли: > {DAYS_OLD} днів               \033[0m\033[36m║\033[0m")
-    print("\033[36m╚══════════════════════════════════════╝\033[0m")
+def interactive_setup() -> tuple:
+    _W = 38
+    _title = "Windows Junk Analyzer — Setup"
+    print(f"\033[36m╔{'═' * _W}╗\033[0m")
+    print(f"\033[36m║\033[0m\033[1m   {_title}{' ' * (_W - 3 - len(_title))}\033[0m\033[36m║\033[0m")
+    print(f"\033[36m╚{'═' * _W}╝\033[0m")
     print()
-    print("  Введи папки для сканирования.")
+
+    days_old  = _ask_int("Старые файлы: старше чем (дней)", DAYS_OLD)
+    size_mb   = _ask_float("Минимальный размер файлов (МБ)", 500.0)
+    print()
+    print(f"  \033[90m{'─' * (_W + 2)}\033[0m")
+    print()
+    print("  Введите папки для сканирования.")
     print("  \033[90mКаждая папка — на новой строке. Пустая строка — старт.\033[0m")
     print()
+
     paths = []
     while True:
         try:
@@ -212,7 +240,7 @@ def ask_scan_paths() -> list[str]:
             paths.append(expanded)
             print(f"  \033[32m[+] Добавлено\033[0m")
     print()
-    return paths
+    return days_old, size_mb, paths
 
 
 logger = logging.getLogger(__name__)
@@ -229,9 +257,10 @@ def main(argv=None):
         scan_paths = [os.path.expandvars(os.path.expanduser(p)) for p in args.scan]
         validate_scan_paths(scan_paths)
         size_threshold_mb = args.min_size if args.min_size else None
+        days_old = args.days
     else:
-        size_threshold_mb = ask_threshold()
-        scan_paths = ask_scan_paths()
+        days_old, size_threshold_mb, scan_paths = interactive_setup()
+        min_size_bytes = int(size_threshold_mb * 1024 * 1024)
 
     open_files = collect_open_files()
 
@@ -255,7 +284,8 @@ def main(argv=None):
 
     print(f"Found {len(files)} files. Classifying...")
     try:
-        classified = classify_files(files, size_threshold_mb=size_threshold_mb) or []
+        classified = classify_files(files, size_threshold_mb=size_threshold_mb,
+                                    days_old=days_old) or []
     except Exception as exc:
         logger.error("Classification failed (%s: %s).", type(exc).__name__, exc)
         sys.exit(1)
@@ -269,18 +299,6 @@ def main(argv=None):
     print(f"Junk files: {len(classified)}. Building report...")
     get_file_owner_fn = get_file_owner if software_map else None
 
-    show_old = True
-    if not args.output:
-        old_count = sum(1 for _, r in classified if _primary_reason(r) == JunkReason.OLD_FILE)
-        if old_count > 0:
-            print(f"\n  Знайдено {old_count} старих файлів. Показати у звіті? [д/н]: ", end="")
-            try:
-                ans = input().strip().lower()
-                show_old = ans in ("д", "y")
-            except (EOFError, KeyboardInterrupt):
-                print()
-                show_old = False
-
     try:
         report_text = build_report(classified, software_map=software_map or None,
                                    get_file_owner_fn=get_file_owner_fn) or ""
@@ -291,7 +309,7 @@ def main(argv=None):
     if args.output:
         if save_report(report_text, args.output):
             pretty = build_report_pretty(classified, software_map=software_map or None,
-                                         get_file_owner_fn=get_file_owner_fn, show_old=True)
+                                         get_file_owner_fn=get_file_owner_fn)
             print(pretty)
             print(f"\nReport saved to {args.output}")
         else:
@@ -299,7 +317,7 @@ def main(argv=None):
             sys.exit(1)
     else:
         pretty = build_report_pretty(classified, software_map=software_map or None,
-                                     get_file_owner_fn=get_file_owner_fn, show_old=show_old)
+                                     get_file_owner_fn=get_file_owner_fn)
         print(pretty)
         _interactive_delete(classified)
 
@@ -307,4 +325,4 @@ def main(argv=None):
 if __name__ == "__main__":
     main()
     if getattr(sys, "frozen", False):
-        input("\nНажми Enter чтобы закрыть...")
+        input("\nНажмите Enter для закрытия...")

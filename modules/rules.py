@@ -11,6 +11,83 @@ from enum import Enum
 from typing import Optional
 
 
+class FileType(Enum):
+    PHOTO    = "photo"
+    VIDEO    = "video"
+    MUSIC    = "music"
+    PROGRAMS = "programs"
+    FILES_1C = "1c"
+    ARCHIVE  = "archive"
+    OTHER    = "other"
+
+
+_PHOTO_EXT: frozenset[str] = frozenset({
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
+    ".raw", ".heic", ".heif", ".webp", ".svg", ".ico",
+})
+_VIDEO_EXT: frozenset[str] = frozenset({
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".m4v",
+    ".mpg", ".mpeg", ".ts", ".3gp", ".webm", ".vob", ".mts", ".m2ts",
+})
+_MUSIC_EXT: frozenset[str] = frozenset({
+    ".mp3", ".flac", ".wav", ".aac", ".ogg", ".wma", ".m4a", ".opus", ".ape",
+})
+_PROGRAMS_EXT: frozenset[str] = frozenset({
+    ".exe", ".dll", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".reg",
+    ".inf", ".sys", ".drv", ".cab", ".iso", ".pyd", ".so",
+    ".dmg", ".pkg", ".deb", ".rpm", ".appimage",
+})
+_1C_EXT: frozenset[str] = frozenset({
+    ".1cd", ".dt", ".cf", ".cfl", ".epf", ".erf", ".dbf", ".cdx", ".idx",
+})
+_ARCHIVE_EXT: frozenset[str] = frozenset({
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz",
+    ".tar.gz", ".tar.bz2", ".z", ".lz", ".lzma", ".zst",
+})
+
+FILE_TYPE_PRIORITY = [
+    FileType.PHOTO,
+    FileType.VIDEO,
+    FileType.MUSIC,
+    FileType.PROGRAMS,
+    FileType.FILES_1C,
+    FileType.ARCHIVE,
+    FileType.OTHER,
+]
+
+FILE_TYPE_LABEL = {
+    FileType.PHOTO:    "ФОТО",
+    FileType.VIDEO:    "ВИДЕО",
+    FileType.MUSIC:    "МУЗЫКА",
+    FileType.PROGRAMS: "ПРОГРАММЫ",
+    FileType.FILES_1C: "1С",
+    FileType.ARCHIVE:  "АРХИВ",
+    FileType.OTHER:    "ДРУГОЕ",
+}
+
+_FILE_TYPE_INDEX = {ft: i for i, ft in enumerate(FILE_TYPE_PRIORITY)}
+
+
+def get_file_type(path: str) -> FileType:
+    try:
+        ext = os.path.splitext(path)[1].lower()
+    except (AttributeError, TypeError):
+        return FileType.OTHER
+    if ext in _PHOTO_EXT:
+        return FileType.PHOTO
+    if ext in _VIDEO_EXT:
+        return FileType.VIDEO
+    if ext in _MUSIC_EXT:
+        return FileType.MUSIC
+    if ext in _PROGRAMS_EXT:
+        return FileType.PROGRAMS
+    if ext in _1C_EXT:
+        return FileType.FILES_1C
+    if ext in _ARCHIVE_EXT:
+        return FileType.ARCHIVE
+    return FileType.OTHER
+
+
 @dataclass
 class FileInfo:
     path: str
@@ -52,6 +129,7 @@ def classify_file(
     file_info: FileInfo,
     now: Optional[float] = None,
     size_threshold_mb: Optional[float] = None,
+    days_old: Optional[int] = None,
 ) -> list[JunkReason]:
     if now is None:
         now = time.time()
@@ -66,8 +144,9 @@ def classify_file(
     if ext in TEMP_EXTENSIONS:
         reasons.append(JunkReason.TEMP_EXTENSION)
 
+    _days = days_old if days_old is not None else DAYS_OLD
     try:
-        if (now - file_info.mtime) > DAYS_OLD * 86400:
+        if (now - file_info.mtime) > _days * 86400:
             reasons.append(JunkReason.OLD_FILE)
     except (TypeError, ValueError, OSError):
         pass
@@ -93,6 +172,7 @@ def classify_files(
     files: list[FileInfo],
     now: Optional[float] = None,
     size_threshold_mb: Optional[float] = None,
+    days_old: Optional[int] = None,
 ) -> list[tuple[FileInfo, list[JunkReason]]]:
     if not files:
         return []
@@ -102,7 +182,8 @@ def classify_files(
 
     for file_info in files:
         try:
-            reasons = classify_file(file_info, now=resolved_now, size_threshold_mb=size_threshold_mb)
+            reasons = classify_file(file_info, now=resolved_now,
+                                    size_threshold_mb=size_threshold_mb, days_old=days_old)
             if reasons:
                 result.append((file_info, reasons))
         except Exception as exc:
