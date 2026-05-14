@@ -6,6 +6,11 @@ __pycache__/
 *.db
 report*.txt
 
+# PyInstaller
+dist/
+build/
+*.spec
+
 # OS
 Thumbs.db
 .DS_Store
