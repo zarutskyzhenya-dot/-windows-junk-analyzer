@@ -397,7 +397,10 @@ def main(argv=None):
         _interactive_delete(classified, S)
 
     if getattr(sys, "frozen", False):
-        input(f"\n{S['press_enter']}")
+        try:
+            input(f"\n{S['press_enter']}")
+        except (EOFError, KeyboardInterrupt):
+            pass
 
 
 if __name__ == "__main__":
