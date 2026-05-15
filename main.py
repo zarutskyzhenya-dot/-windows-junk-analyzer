@@ -17,6 +17,68 @@ from modules.report import (build_report, build_report_pretty, save_report,
                             format_size, sort_classified, REASON_MAP, _primary_reason)
 
 
+STRINGS = {
+    "ru": {
+        "days_prompt":     "Старые файлы: старше чем (дней)",
+        "size_prompt":     "Минимальный размер файлов (МБ)",
+        "bad_value":       "Неверное значение, использую",
+        "enter_folders":   "Введите папки для сканирования.",
+        "folders_hint":    "Каждая папка — на новой строке. Пустая строка — старт.",
+        "folder_prompt":   "Папка",
+        "need_folder":     "Нужна хотя бы одна папка.",
+        "not_found":       "Папка не найдена",
+        "added":           "[+] Добавлено",
+        "delete_prompt":   "Удалить файлы? \033[1m[A]\033[0mll  \033[1m[N]\033[0mone  или номера через запятую \033[1m(1,3)\033[0m",
+        "nothing_deleted": "Ничего не удалено.",
+        "bad_range":       "Неверный диапазон {a}-{b}: начало больше конца.",
+        "out_of_range":    "Номера вне списка: {inv}. Макс: {n}.",
+        "bad_format":      "Неверный формат. Пример: 1,3 или 2-5 или 1,3-7",
+        "confirm_delete":  "Файлы будут удалены ({n} шт.). Вы уверены? [д/н]",
+        "confirm_yes":     ("д", "y"),
+        "cancelled":       "Отменено.",
+        "skip_missing":    "файл уже не существует",
+        "blocked":         "защищённый файл",
+        "deleted_count":   "Удалено: {n} файлов",
+        "collecting":      "Collecting open files...",
+        "building_map":    "Building software map...",
+        "scanning":        "Scanning directories...",
+        "found_files":     "Found {n} files. Classifying...",
+        "junk_files":      "Junk files: {n}. Building report...",
+        "report_saved":    "Report saved to {path}",
+        "press_enter":     "Нажмите Enter для закрытия...",
+    },
+    "en": {
+        "days_prompt":     "Old files: older than (days)",
+        "size_prompt":     "Minimum file size (MB)",
+        "bad_value":       "Invalid value, using",
+        "enter_folders":   "Enter folders to scan.",
+        "folders_hint":    "One folder per line. Empty line — start.",
+        "folder_prompt":   "Folder",
+        "need_folder":     "At least one folder required.",
+        "not_found":       "Folder not found",
+        "added":           "[+] Added",
+        "delete_prompt":   "Delete files? \033[1m[A]\033[0mll  \033[1m[N]\033[0mone  or numbers separated by comma \033[1m(1,3)\033[0m",
+        "nothing_deleted": "Nothing deleted.",
+        "bad_range":       "Invalid range {a}-{b}: start > end.",
+        "out_of_range":    "Numbers out of range: {inv}. Max: {n}.",
+        "bad_format":      "Invalid format. Example: 1,3 or 2-5 or 1,3-7",
+        "confirm_delete":  "Files will be deleted ({n} pcs). Are you sure? [y/n]",
+        "confirm_yes":     ("y",),
+        "cancelled":       "Cancelled.",
+        "skip_missing":    "file no longer exists",
+        "blocked":         "protected file",
+        "deleted_count":   "Deleted: {n} files",
+        "collecting":      "Collecting open files...",
+        "building_map":    "Building software map...",
+        "scanning":        "Scanning directories...",
+        "found_files":     "Found {n} files. Classifying...",
+        "junk_files":      "Junk files: {n}. Building report...",
+        "report_saved":    "Report saved to {path}",
+        "press_enter":     "Press Enter to close...",
+    },
+}
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="main.py",
@@ -82,7 +144,7 @@ def collect_software_map(db_path):
         return {}
 
 
-def _ask_int(prompt: str, default: int) -> int:
+def _ask_int(prompt: str, default: int, S: dict) -> int:
     print(f"  {prompt} [{default}]: ", end="")
     try:
         line = input().strip()
@@ -97,11 +159,11 @@ def _ask_int(prompt: str, default: int) -> int:
             raise ValueError
         return val
     except ValueError:
-        print(f"  \033[33m[!] Неверное значение, использую {default}\033[0m")
+        print(f"  \033[33m[!] {S['bad_value']} {default}\033[0m")
         return default
 
 
-def _ask_float(prompt: str, default: float) -> float:
+def _ask_float(prompt: str, default: float, S: dict) -> float:
     print(f"  {prompt} [{default:.0f}]: ", end="")
     try:
         line = input().strip()
@@ -116,16 +178,16 @@ def _ask_float(prompt: str, default: float) -> float:
             raise ValueError
         return val
     except ValueError:
-        print(f"  \033[33m[!] Неверное значение, использую {default:.0f}\033[0m")
+        print(f"  \033[33m[!] {S['bad_value']} {default:.0f}\033[0m")
         return default
 
 
-def _interactive_delete(classified: list) -> None:
+def _interactive_delete(classified: list, S: dict) -> None:
     if not classified:
         return
     sorted_files = sort_classified(classified)
     print("  \033[90m─────────────────────────────────────────────\033[0m")
-    print("  Удалить файлы? \033[1m[A]\033[0mll  \033[1m[N]\033[0mone  или номера через запятую \033[1m(1,3)\033[0m: ", end="")
+    print(f"  {S['delete_prompt']}: ", end="")
     try:
         answer = input().strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -133,7 +195,7 @@ def _interactive_delete(classified: list) -> None:
         return
 
     if not answer or answer in ("n", "none"):
-        print("  Ничего не удалено.")
+        print(f"  {S['nothing_deleted']}")
         return
 
     if answer in ("a", "all"):
@@ -148,22 +210,22 @@ def _interactive_delete(classified: list) -> None:
                     a, b = token.split("-", 1)
                     a, b = int(a), int(b)
                     if a > b:
-                        print(f"  \033[33m[!] Неверный диапазон {a}-{b}: начало больше конца.\033[0m")
+                        print(f"  \033[33m[!] {S['bad_range'].format(a=a, b=b)}\033[0m")
                         return
                     targets.extend(range(a - 1, b))
                 else:
                     targets.append(int(token) - 1)
             invalid = [i + 1 for i in targets if not (0 <= i < n)]
             if invalid:
-                print(f"  \033[33m[!] Номера вне списка: {', '.join(map(str, invalid))}. Макс: {n}.\033[0m")
+                print(f"  \033[33m[!] {S['out_of_range'].format(inv=', '.join(map(str, invalid)), n=n)}\033[0m")
                 return
             targets = list(dict.fromkeys(targets))
         except ValueError:
-            print("  \033[31m[!] Неверный формат. Пример: 1,3 или 2-5 или 1,3-7\033[0m")
+            print(f"  \033[31m[!] {S['bad_format']}\033[0m")
             return
 
     if not targets:
-        print("  Ничего не удалено.")
+        print(f"  {S['nothing_deleted']}")
         return
 
     print()
@@ -171,15 +233,15 @@ def _interactive_delete(classified: list) -> None:
         fi = sorted_files[i][0]
         print(f"    \033[33m{i+1}. {fi.path}  ({format_size(fi.size_bytes)})\033[0m")
     print()
-    print(f"  \033[31mФайлы будут удалены ({len(targets)} шт.). Вы уверены? [д/н]:\033[0m ", end="")
+    print(f"  \033[31m{S['confirm_delete'].format(n=len(targets))}:\033[0m ", end="")
     try:
         confirm = input().strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return
 
-    if confirm not in ("д", "y"):
-        print("  Отменено.")
+    if confirm not in S["confirm_yes"]:
+        print(f"  {S['cancelled']}")
         return
 
     deleted = 0
@@ -188,10 +250,10 @@ def _interactive_delete(classified: list) -> None:
         fname = os.path.basename(path)
         try:
             if not os.path.exists(path):
-                print(f"  \033[33m[SKIP]\033[0m {fname}: файл уже не существует")
+                print(f"  \033[33m[SKIP]\033[0m {fname}: {S['skip_missing']}")
                 continue
             if is_protected_path(path) or is_system_file(path):
-                print(f"  \033[31m[BLOCK]\033[0m {fname}: защищённый файл")
+                print(f"  \033[31m[BLOCK]\033[0m {fname}: {S['blocked']}")
                 continue
             send2trash(path)
             print(f"  \033[32m[OK]\033[0m {fname}")
@@ -199,7 +261,7 @@ def _interactive_delete(classified: list) -> None:
         except Exception as exc:
             print(f"  \033[31m[ERR]\033[0m {fname}: {exc}")
 
-    print(f"\n  Удалено: {deleted} файлов")
+    print(f"\n  {S['deleted_count'].format(n=deleted)}")
 
 
 def interactive_setup() -> tuple:
@@ -210,37 +272,47 @@ def interactive_setup() -> tuple:
     print(f"\033[36m╚{'═' * _W}╝\033[0m")
     print()
 
-    days_old  = _ask_int("Старые файлы: старше чем (дней)", DAYS_OLD)
-    size_mb   = _ask_float("Минимальный размер файлов (МБ)", 500.0)
+    print("  Language / Язык [ru/en]: ", end="")
+    try:
+        lang_input = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        sys.exit(0)
+    lang = "en" if lang_input == "en" else "ru"
+    S = STRINGS[lang]
+    print()
+
+    days_old = _ask_int(S["days_prompt"], DAYS_OLD, S)
+    size_mb  = _ask_float(S["size_prompt"], 500.0, S)
     print()
     print(f"  \033[90m{'─' * (_W + 2)}\033[0m")
     print()
-    print("  Введите папки для сканирования.")
-    print("  \033[90mКаждая папка — на новой строке. Пустая строка — старт.\033[0m")
+    print(f"  {S['enter_folders']}")
+    print(f"  \033[90m{S['folders_hint']}\033[0m")
     print()
 
     paths = []
     while True:
         try:
-            line = input("  Папка: ").strip()
+            line = input(f"  {S['folder_prompt']}: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             sys.exit(0)
         if not line:
             if not paths:
-                print("  \033[33mНужна хотя бы одна папка.\033[0m")
+                print(f"  \033[33m{S['need_folder']}\033[0m")
                 continue
             break
         expanded = os.path.expandvars(os.path.expanduser(line))
         if len(expanded) == 2 and expanded[1] == ':':
             expanded = expanded + os.sep
         if not os.path.isdir(expanded):
-            print(f"  \033[31m[!] Папка не найдена: {expanded}\033[0m")
+            print(f"  \033[31m[!] {S['not_found']}: {expanded}\033[0m")
         else:
             paths.append(expanded)
-            print(f"  \033[32m[+] Добавлено\033[0m")
+            print(f"  \033[32m{S['added']}\033[0m")
     print()
-    return days_old, size_mb, paths
+    return days_old, size_mb, paths, lang
 
 
 logger = logging.getLogger(__name__)
@@ -258,9 +330,12 @@ def main(argv=None):
         validate_scan_paths(scan_paths)
         size_threshold_mb = args.min_size if args.min_size else None
         days_old = args.days
+        lang = "en"
     else:
-        days_old, size_threshold_mb, scan_paths = interactive_setup()
+        days_old, size_threshold_mb, scan_paths, lang = interactive_setup()
         min_size_bytes = int(size_threshold_mb * 1024 * 1024)
+
+    S = STRINGS[lang]
 
     open_files = collect_open_files()
 
@@ -268,7 +343,7 @@ def main(argv=None):
     if not args.no_software_map:
         software_map = collect_software_map(db_path)
 
-    print("Scanning directories...")
+    print(S["scanning"])
     is_protected = lambda p: is_protected_path(p) or is_system_file(p)
     is_in_use = lambda p: is_file_in_use(p, open_files)
 
@@ -282,7 +357,7 @@ def main(argv=None):
         logger.error("Scan failed (%s: %s).", type(exc).__name__, exc)
         sys.exit(1)
 
-    print(f"Found {len(files)} files. Classifying...")
+    print(S["found_files"].format(n=len(files)))
     try:
         classified = classify_files(files, size_threshold_mb=size_threshold_mb,
                                     days_old=days_old) or []
@@ -296,7 +371,7 @@ def main(argv=None):
         if allowed:
             classified = [(fi, r) for fi, r in classified if _primary_reason(r) in allowed]
 
-    print(f"Junk files: {len(classified)}. Building report...")
+    print(S["junk_files"].format(n=len(classified)))
     get_file_owner_fn = get_file_owner if software_map else None
 
     try:
@@ -309,20 +384,21 @@ def main(argv=None):
     if args.output:
         if save_report(report_text, args.output):
             pretty = build_report_pretty(classified, software_map=software_map or None,
-                                         get_file_owner_fn=get_file_owner_fn)
+                                         get_file_owner_fn=get_file_owner_fn, lang=lang)
             print(pretty)
-            print(f"\nReport saved to {args.output}")
+            print(f"\n{S['report_saved'].format(path=args.output)}")
         else:
             logger.error("Could not save report to '%s'.", args.output)
             sys.exit(1)
     else:
         pretty = build_report_pretty(classified, software_map=software_map or None,
-                                     get_file_owner_fn=get_file_owner_fn)
+                                     get_file_owner_fn=get_file_owner_fn, lang=lang)
         print(pretty)
-        _interactive_delete(classified)
+        _interactive_delete(classified, S)
+
+    if getattr(sys, "frozen", False):
+        input(f"\n{S['press_enter']}")
 
 
 if __name__ == "__main__":
     main()
-    if getattr(sys, "frozen", False):
-        input("\nНажмите Enter для закрытия...")
